@@ -52,8 +52,7 @@ class ConversorRouter {
 	@Bean
 	public RouterFunction<ServerResponse> routes(ConversorService conversorService){
 		return route()
-            .GET("/testaImagem", req -> ok().body(conversorService.generateImageFromPDF(), String.class))
-            .GET("/imagemPdf", req -> ok().body(conversorService.generatePDFFromImage(), String.class))
+            .GET("/testaImagem/{nomeArquivo}", req -> ok().body(conversorService.generateImageFromPDF(req.pathVariable("nomeArquivo")), Imagem.class))
             .GET("/imagem", req -> ok().body(conversorService.getImagem(), Imagem.class))
             .POST("/imagemFromFront", req -> ok().body(req.bodyToMono(Imagem.class).flatMap(imagem -> conversorService.salvaImagem(imagem)), String.class))
 			.POST("/mandaArquivo", req -> ok().body(req.bodyToMono(ArquivoPDF.class).flatMap(arquivoPDF -> conversorService.salvaArquivo(arquivoPDF)), String.class))
@@ -67,7 +66,7 @@ class ConversorService {
 
 	public Mono<String> salvaArquivo(ArquivoPDF arquivoPDF){
 		try {
-			OutputStream os = new FileOutputStream(new File("src\\main\\resources\\documentos\\novoArquivo.pdf"));
+			OutputStream os = new FileOutputStream(new File("src\\main\\resources\\documentos\\" + arquivoPDF.getNome() + ".pdf"));
 			os.write(arquivoPDF.getArquivo());
 			os.close();
 			return Mono.just("Deu certo");
@@ -77,41 +76,45 @@ class ConversorService {
 		}
 	}
 
-	public Mono<String> generateImageFromPDF() {
+	public Mono<Imagem> generateImageFromPDF(String nomeArquivo) {
 		try {
-			PDDocument document = PDDocument.load(new File("src\\main\\resources\\documentos\\teste.pdf"));
+			PDDocument document = PDDocument.load(new File("src\\main\\resources\\documentos\\" + nomeArquivo + ".pdf"));
 			PDFRenderer pdfRenderer = new PDFRenderer(document);
 			for (int page = 0; page < document.getNumberOfPages(); ++page) {
 				BufferedImage bim = pdfRenderer.renderImageWithDPI(
 						page, 300, ImageType.RGB);
 				ImageIOUtil.writeImage(
-						bim, String.format("src/main/resources/imagens/pdf-%d.%s", page + 1, "png"), 300);
+						bim, "src/main/resources/imagens/" + nomeArquivo + ".png", 300);
 			}
 			document.close();
-			return Mono.just("Extraiu");
+			byte[] imagemBytes = Files.readAllBytes(Paths.get("src/main/resources/imagens/" + nomeArquivo + ".png"));
+			Imagem imagem = new Imagem();
+			imagem.setImagem(imagemBytes);
+			imagem.setNome(nomeArquivo);
+			return Mono.just(imagem);
 		} catch (Exception e){
 			logger.error(e.getMessage());
 			e.printStackTrace();
-			return Mono.just("Deu erro");
+			return Mono.empty();
 		}
 	}
 
-	public Mono<String> generatePDFFromImage() {
+	public Mono<String> generatePDFFromImage(String nomeArquivo) {
 		try {
 			PDDocument document = new PDDocument();
-			InputStream in = new FileInputStream("src/main/resources/imagens/pdf-1.png");
+			InputStream in = new FileInputStream("src/main/resources/imagens/" + nomeArquivo + ".png");
 			BufferedImage bimg = ImageIO.read(in);
 			float width = bimg.getWidth();
 			float height = bimg.getHeight();
 			PDPage page = new PDPage(new PDRectangle(width, height));
 			document.addPage(page);
-			PDImageXObject img = PDImageXObject.createFromFile("src/main/resources/imagens/pdf-1.png", document);
+			PDImageXObject img = PDImageXObject.createFromFile("src/main/resources/imagens/" + nomeArquivo + ".png", document);
 			PDPageContentStream contentStream = new PDPageContentStream(document, page);
 			contentStream.drawImage(img, 0, 0);
 			contentStream.close();
 			in.close();
 
-			document.save(new File("src\\main\\resources\\documentos\\novoTestePdf.pdf"));
+			document.save(new File("src\\main\\resources\\documentos\\" + nomeArquivo + "Novo.pdf"));
 			document.close();
 			return Mono.just("Deu certo");
 		}catch (Exception e){
@@ -138,7 +141,8 @@ class ConversorService {
             logger.info("Recebeu requisição");
             ByteArrayInputStream stream = new ByteArrayInputStream(imagem.getImagem());
             BufferedImage read = ImageIO.read(stream);
-            ImageIO.write(read, "png", new File("src\\main\\resources\\imagens\\output.png"));
+            ImageIO.write(read, "png", new File("src\\main\\resources\\imagens\\" + imagem.getNome() + "Novo.png"));
+
             return Mono.just("Deu certo");
         }catch (Exception e){
 	        e.printStackTrace();
@@ -167,9 +171,18 @@ class CorsGlobalConfiguration implements WebFluxConfigurer {
 }
 
 class Imagem {
+	private String nome;
     private byte[] imagem;
 
-    public byte[] getImagem() {
+	public String getNome() {
+		return nome;
+	}
+
+	public void setNome(String nome) {
+		this.nome = nome;
+	}
+
+	public byte[] getImagem() {
         return imagem;
     }
 
@@ -179,7 +192,16 @@ class Imagem {
 }
 
 class ArquivoPDF{
+	private String nome;
 	private byte[] arquivo;
+
+	public String getNome() {
+		return nome;
+	}
+
+	public void setNome(String nome) {
+		this.nome = nome;
+	}
 
 	public byte[] getArquivo() {
 		return arquivo;
